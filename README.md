@@ -1,1 +1,1 @@
-# NeuroimagingCourse
+# Neuroimaging Course
