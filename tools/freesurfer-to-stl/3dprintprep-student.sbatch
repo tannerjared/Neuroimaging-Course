@@ -17,39 +17,32 @@ USERNAME="your_username"
 SUBJECTS=("sub-6303")  # One brain is enough for the homework.
 BASE_DIR="/blue/psb4353c/share/students/${USERNAME}/Module3/ADNI_bids/derivatives/freesurfer"
 OUT_DIR="${BASE_DIR}/3dprint-direct"
-TOOL_DIR="/blue/psb4353c/share/data/neurotools/freesurfer-to-stl"
+IMAGE="/blue/psb4353c/share/data/neurotools/3dprintprep-direct-1.0.0.sif"
 
 if [[ "$USERNAME" == "your_username" ]]; then
     echo "STOP: Edit USERNAME, SUBJECTS, BASE_DIR, and the email before submitting."
     exit 1
 fi
-if [[ ! -r "$TOOL_DIR/environment.sh" ]]; then
-    echo "STOP: Shared exporter setup is missing. Ask the instructor; do not use the old print container."
-    exit 1
-fi
-# The instructor records the module(s) needed by the shared Python environment here.
-# Source before enabling nounset again because some module setup scripts use unset variables.
-set +u
-source "$TOOL_DIR/environment.sh"
-set -u
-PYTHON="$TOOL_DIR/.venv/bin/python"
-if [[ ! -x "$PYTHON" || ! -r "$TOOL_DIR/3Dprintprep.py" || ! -r "$TOOL_DIR/subject_input.py" ]]; then
-    echo "STOP: Shared exporter is incomplete. Ask the instructor to finish setup."
-    exit 1
-fi
-export PYTHONNOUSERSITE=1
-export PYTHONDONTWRITEBYTECODE=1
-export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-2}"
-export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS"
-export MKL_NUM_THREADS="$OMP_NUM_THREADS"
+command -v apptainer >/dev/null || { echo "STOP: Apptainer is not available. Ask the instructor."; exit 1; }
+[[ -r "$IMAGE" ]] || { echo "STOP: Shared container is missing: $IMAGE. Ask the instructor."; exit 1; }
+[[ -d "$BASE_DIR" ]] || { echo "STOP: Subject directory does not exist: $BASE_DIR"; exit 1; }
+[[ ${#SUBJECTS[@]} -gt 0 ]] || { echo "STOP: List at least one subject."; exit 1; }
+# Commas and colons are Apptainer bind delimiters; avoid them in these paths.
+for path in "$BASE_DIR" "$OUT_DIR"; do
+    [[ "$path" != *:* && "$path" != *,* ]] || { echo "STOP: Bind paths cannot contain commas or colons."; exit 1; }
+done
+THREADS="${SLURM_CPUS_PER_TASK:-2}"
+RUN=(apptainer run --cleanenv --containall --pwd /tmp
+    --env "OMP_NUM_THREADS=$THREADS,OPENBLAS_NUM_THREADS=$THREADS,MKL_NUM_THREADS=$THREADS"
+    --bind "$BASE_DIR:/in:ro")
 
-# Check every input before starting any exports.
+# Check every input and destination before starting any exports.
 for SUBJ in "${SUBJECTS[@]}"; do
     [[ "$SUBJ" != */* && "$SUBJ" != "." && "$SUBJ" != ".." && -n "$SUBJ" ]] || {
         echo "STOP: Invalid subject ID: $SUBJ"; exit 1;
     }
-    "$PYTHON" "$TOOL_DIR/3Dprintprep.py" "$BASE_DIR" --subject "$SUBJ" --check-input
-    if [[ -e "$OUT_DIR/$SUBJ.stl" || -e "$OUT_DIR/${SUBJ}_surfaces" ]]; then
+    "${RUN[@]}" "$IMAGE" /in --subject "$SUBJ" --check-input
+    if [[ -e "$OUT_DIR/$SUBJ.stl" || -L "$OUT_DIR/$SUBJ.stl" || -e "$OUT_DIR/${SUBJ}_surfaces" || -L "$OUT_DIR/${SUBJ}_surfaces" ]]; then
         echo "STOP: Output for $SUBJ already exists. Review it before choosing a new OUT_DIR."
         exit 1
     fi
@@ -59,8 +52,8 @@ mkdir -p "$OUT_DIR"
 date
 for SUBJ in "${SUBJECTS[@]}"; do
     echo "Exporting $SUBJ directly from FreeSurfer..."
-    "$PYTHON" -u "$TOOL_DIR/3Dprintprep.py" \
-        "$BASE_DIR" "$OUT_DIR/$SUBJ.stl" --subject "$SUBJ"
+    "${RUN[@]}" --bind "$OUT_DIR:/out:rw" "$IMAGE" \
+        /in "/out/$SUBJ.stl" --subject "$SUBJ"
 done
 echo "Finished. Check $OUT_DIR for your STL files and source manifests."
 date

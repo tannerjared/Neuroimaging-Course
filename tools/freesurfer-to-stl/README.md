@@ -4,7 +4,24 @@ These are the scripts used by the [Module 4 print-preparation tutorial](https://
 
 Read a completed FreeSurfer subject directly. FSQC, BrainPrint, FreeSurfer executables, and a FreeSurfer license are not needed for export. Keep `3Dprintprep.py` and `subject_input.py` together. No participant data are included.
 
-## Local setup and use
+## Container use
+
+For HiPerGator, use the shared `3dprintprep-direct-1.0.0.sif` and [student script](3dprintprep-student.sbatch). The instructor builds/converts it once using [INSTRUCTOR-SETUP.md](INSTRUCTOR-SETUP.md). Students need no Python setup.
+
+For Docker on your own computer, build from this folder:
+
+```sh
+docker build --platform linux/amd64 -t freesurfer-to-stl:1.0.0 .
+mkdir -p /path/to/exports
+docker run --rm --platform linux/amd64 \
+  --mount type=bind,src=/path/to/subject01,dst=/in,readonly \
+  --mount type=bind,src=/path/to/exports,dst=/out \
+  freesurfer-to-stl:1.0.0 /in /out/subject01.stl
+```
+
+Replace the host paths. Keep symlink targets within the mounted input. On native Linux, add `--user "$(id -u):$(id -g)"` to keep outputs owned by your account. No MRI data or license are included in the container. VTK and PyMeshLab account for much of its size.
+
+## Optional local Python setup
 
 Use Python 3.12. Run these commands from this folder:
 
@@ -33,17 +50,11 @@ The sibling `<output-name>_surfaces` folder contains original hemisphere STLs, g
 
 Defaults match the tested exporter: 100 scale-dependent Laplacian cortex steps, delta 0.1%; 30 VTK windowed-sinc non-cortex iterations, passband 0.2. The combined non-cortex is extracted from the union of its selected labels to avoid shared internal seams. The overall STL contains anatomical shells, not a whole-brain boolean union. Inspect it in the slicer before printing.
 
-## HiPerGator course setup
-
-Students use one shared installation and copy only `3dprintprep-student.sbatch` into their own work folder. The instructor must first complete [INSTRUCTOR-SETUP.md](INSTRUCTOR-SETUP.md). No shared installation is created by downloading this repository.
-
-The wrapper runs on a compute node, checks all subject inputs, prevents accidental output replacement, and uses the existing Module 3 subjects. It does not run `fsqc.sif`, BrainPrint `--shape`, or an old `3dprintprep*.sif` image.
-
 ## Validation and reproducibility
 
 Dependencies are pinned in `requirements.txt`. The exporter passed eight tests and reproduced the reference FreeSurfer 8.2 STL byte-for-byte on Apple Silicon macOS with Python 3.12.9. Both source Python files are unchanged from that tested export. Cross-platform bit-for-bit identity is not promised.
 
-The Slurm wrapper has been checked locally with input/output guard tests. HiPerGator execution, Linux graphics-library compatibility, and student permissions still require a test on the cluster before class use. Native Windows execution has not been tested.
+The Linux AMD64 container passed the same eight tests, including a non-root run with a read-only image and no network. A real FreeSurfer subject export produced 21 valid meshes, with the same final triangle count and bounds as the native macOS export (binary STL files are not byte-identical across platforms). The saved Docker archive is 493 MB compressed; the unpacked image is about 1.62 GB. The student wrapper is checked locally with mocked Apptainer calls. SIF conversion, HiPerGator execution, and student permissions still require cluster validation. Native Windows execution has not been tested.
 
 ```sh
 .venv/bin/python -m pytest -q tests -W error::RuntimeWarning

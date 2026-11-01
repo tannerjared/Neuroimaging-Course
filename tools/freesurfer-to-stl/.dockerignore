@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!requirements.txt
+!3Dprintprep.py
+!subject_input.py
+!tests/
+!tests/test_subject_input.py
